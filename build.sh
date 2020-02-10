@@ -207,7 +207,7 @@ apt-key add - < Release.key
 rm -f  Release.key
 
 apt-get update
-apt-get install -y --no-install-recommends cri-o-1.16 cri-tools
+apt-get install -y --no-install-recommends cri-o-1.16 cri-tools skopeo
 
 
 crio config > /etc/crio/crio.conf
