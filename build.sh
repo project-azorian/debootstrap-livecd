@@ -13,12 +13,6 @@ debootstrap \
   "${root_chroot}" \
   http://ftp.debian.org/debian/
 
-apt-get update && apt-get install  -y --no-install-recommends \
-   equivs
-curl -sSL https://gist.githubusercontent.com/heralight/c34fc27048ff8c13862a/raw/2fb11e12df22ef672ea7024a7d0a01863aea576d/gen-dummy-package.sh > /usr/bin/gen-dummy-package.sh
-
-chmod +x /usr/bin/gen-dummy-package.sh
-
 /usr/bin/gen-dummy-package.sh ifupdown
 cp -v ifupdown*.deb ${root_chroot}/ifupdown.deb
 
@@ -44,7 +38,8 @@ apt-get update && apt-get install  -y --no-install-recommends \
    netplan.io \
    locales-all \
    ipvsadm \
-   bridge-utils
+   bridge-utils \
+   gettext-base
 
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
@@ -60,6 +55,119 @@ password: password
 ssh_pwauth: True
 chpasswd:
   expire: false
+write_files:
+  - path: /usr/local/bin/genesis
+    permissions: '0711'
+    content: |
+      #!/bin/bash
+      set -ex
+      export pod_network_cidr="172.18.0.0/17"
+      export svc_network_cidr="172.18.128.0/17"
+      export kubeadm_initial_token="$(kubeadm token generate)"
+      export kubernetes_release="$(kubelet --version | awk '{ print $NF ; exit }')"
+      export default_route_device="$(route -n | awk '/^0.0.0.0/ { print $5 " " $NF }' | sort | awk '{ print $NF; exit }')"
+      export default_route_device_ip="$(ip a s $default_route_device | grep 'inet ' | awk '{print $2}' | awk -F "/" '{print $1}' | head -n 1)"
+      cat /etc/airship/genesis/100-crio-bridge.conf.template | envsubst > /etc/cni/net.d/100-crio-bridge.conf
+      cat /etc/airship/genesis/kubeadm.yaml.template | envsubst > /etc/kubernetes/kubeadm.yaml
+
+      kubeadm config images list --config /etc/kubernetes/kubeadm.yaml
+      kubeadm config images pull --config /etc/kubernetes/kubeadm.yaml
+
+      kubeadm init --config /etc/kubernetes/kubeadm.yaml --ignore-preflight-errors=SystemVerification
+
+      mkdir -p ~/.kube
+      rm -f ~/.kube/config
+      cp -i /etc/kubernetes/admin.conf ~/.kube/config
+      chown $(id -u):$(id -g) ~/.kube/config
+
+      # NOTE: Wait for dns to be running.
+      END=$(($(date +%s) + 240))
+      until kubectl --namespace=kube-system \
+            get pods -l k8s-app=kube-dns --no-headers -o name | grep -q "^pod/coredns"; do
+      NOW=$(date +%s)
+      [ "${NOW}" -gt "${END}" ] && exit 1
+      echo "still waiting for dns"
+      sleep 10
+      done
+      kubectl --namespace=kube-system wait --timeout=240s --for=condition=Ready pods -l k8s-app=kube-dns
+
+      kubectl taint nodes --all node-role.kubernetes.io/master-
+
+      kubectl get nodes -o wide
+
+  - path: /etc/airship/genesis/100-crio-bridge.conf.template
+    permissions: '0640'
+    content: |
+      {
+        "cniVersion": "0.3.1",
+        "name": "crio-bridge",
+        "type": "bridge",
+        "bridge": "cni0",
+        "isGateway": true,
+        "ipMasq": true,
+        "hairpinMode": true,
+        "ipam": {
+          "type": "host-local",
+          "routes": [
+            { "dst": "0.0.0.0/0" },
+            { "dst": "1100:200::1/24" }
+          ],
+          "ranges": [
+            [{ "subnet": "${pod_network_cidr}" }],
+            [{ "subnet": "1100:200::/24" }]
+          ]
+        }
+      }
+  - path: /etc/airship/genesis/kubeadm.yaml.template
+    permissions: '0640'
+    content: |
+      apiVersion: kubeadm.k8s.io/v1beta2
+      kind: InitConfiguration
+      localAPIEndpoint:
+        advertiseAddress: ${default_route_device_ip}
+        bindPort: 6443
+      nodeRegistration:
+        criSocket: /var/run/crio/crio.sock
+        name: ${HOSTNAME}
+        taints:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      bootstrapTokens:
+      - groups:
+        - system:bootstrappers:kubeadm:default-node-token
+        token: ${kubeadm_initial_token}
+        ttl: 24h0m0s
+        usages:
+        - signing
+        - authentication
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta2
+      kind: ClusterConfiguration
+      clusterName: kubernetes
+      kubernetesVersion: ${kubernetes_release}
+      imageRepository: k8s.gcr.io
+      networking:
+        dnsDomain: cluster.local
+        podSubnet: ${pod_network_cidr}
+        serviceSubnet: ${svc_network_cidr}
+      apiServer:
+        extraArgs:
+          authorization-mode: Node,RBAC
+        timeoutForControlPlane: 4m0s
+      certificatesDir: /etc/kubernetes/pki
+      controllerManager: {}
+      dns:
+        type: CoreDNS
+      etcd:
+        local:
+          dataDir: /var/lib/etcd
+      scheduler: {}
+      ---
+      apiVersion: kubeproxy.config.k8s.io/v1alpha1
+      kind: KubeProxyConfiguration
+      mode: "ipvs"
+#runcmd:
+# - [ /usr/local/bin/genesis ]
 EOCI
 tee "/etc/cloud/cloud.cfg.d/network-data.cfg" <<'EOCI'
 network:
@@ -143,8 +251,9 @@ apt-get update
 apt-get install -y --no-install-recommends kubelet kubeadm kubectl
 
 sed -i 's/^#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.d/99-sysctl.conf
-echo "KUBELET_EXTRA_ARGS=--cgroup-driver=systemd" > /etc/default/kubelet
 echo "br_netfilter" > /etc/modules-load.d/99-br_netfilter.conf
+
+echo "KUBELET_EXTRA_ARGS=--cgroup-driver=systemd" > /etc/default/kubelet
 
 apt-get autoremove -y
 apt-get reinstall linux-image-$(ls /lib/modules)
