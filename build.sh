@@ -39,7 +39,8 @@ apt-get update && apt-get install  -y --no-install-recommends \
    locales-all \
    ipvsadm \
    bridge-utils \
-   gettext-base
+   gettext-base \
+   xz-utils
 
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
@@ -70,9 +71,19 @@ write_files:
       cat /etc/airship/genesis/100-crio-bridge.conf.template | envsubst > /etc/cni/net.d/100-crio-bridge.conf
       cat /etc/airship/genesis/kubeadm.yaml.template | envsubst > /etc/kubernetes/kubeadm.yaml
 
-      kubeadm config images list --config /etc/kubernetes/kubeadm.yaml
-      kubeadm config images pull --config /etc/kubernetes/kubeadm.yaml
-
+      if [[ -f /opt/kubeadm-images.tar.xz ]]; then
+        tar -xJf /opt/kubeadm-images.tar.xz -C /
+        while IFS="" read -r line || [ -n "$line" ]; do
+          image_ref=$(echo $line | awk '{ print $1 }')
+          image_archive=$(echo $line | awk '{ print $2 }')
+          skopeo copy docker-archive:${image_archive} containers-storage:${image_ref}
+          rm -fv ${image_archive}
+        done < /opt/kubeadm-images/manifest
+        rm -rf /opt/kubeadm-images
+      else
+        kubeadm config images list --config /etc/kubernetes/kubeadm.yaml
+        kubeadm config images pull --config /etc/kubernetes/kubeadm.yaml
+      fi
       kubeadm init --config /etc/kubernetes/kubeadm.yaml --ignore-preflight-errors=SystemVerification
 
       mkdir -p ~/.kube
@@ -254,6 +265,16 @@ sed -i 's/^#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.d/99-sysct
 echo "br_netfilter" > /etc/modules-load.d/99-br_netfilter.conf
 
 echo "KUBELET_EXTRA_ARGS=--cgroup-driver=systemd" > /etc/default/kubelet
+
+rm -rf /opt/kubeadm-images
+mkdir -p /opt/kubeadm-images/images
+for image_ref in $(kubeadm config images list); do
+  image_archive="/opt/kubeadm-images/images/$(echo ${image_ref} | tr ':' '-'| tr '/' '_')"
+  echo ${image_ref} ${image_archive} >> /opt/kubeadm-images/manifest
+  skopeo copy docker://${image_ref} docker-archive:${image_archive}:${image_ref}
+done
+XZ_OPT=-9e tar -c -J -f /opt/kubeadm-images.tar.xz /opt/kubeadm-images/
+rm -rf /opt/kubeadm-images
 
 apt-get autoremove -y
 apt-get reinstall linux-image-$(ls /lib/modules)
