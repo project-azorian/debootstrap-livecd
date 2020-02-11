@@ -1,0 +1,15 @@
+[Unit]
+Description=CRI-O Setup loopback and mount for Overlay
+Before=crio-wipe.service
+
+[Service]
+ExecStartPre=/usr/bin/mkdir -p /var/lib/containers
+ExecStartPre=/usr/bin/truncate -s 16384M /var/lib/containers/graph.img
+ExecStartPre=/usr/sbin/mkfs.ext4 /var/lib/containers/graph.img
+ExecStartPre=/usr/bin/mkdir -p /var/lib/containers/storage
+ExecStart=/usr/bin/mount /var/lib/containers/graph.img /var/lib/containers/storage/
+
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target

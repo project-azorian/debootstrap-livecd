@@ -221,24 +221,6 @@ crio config > /etc/crio/crio.conf
 sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' /etc/crio/crio.conf
 sed -i 's|cgroup_manager = "cgroupfs"|cgroup_manager = "systemd"|g' /etc/crio/crio.conf
 
-tee /etc/systemd/system/crio-mount.service <<EOU
-[Unit]
-Description=CRI-O Setup loopback and mount for Overlay
-Before=crio-wipe.service
-
-[Service]
-ExecStartPre=/usr/bin/mkdir -p /var/lib/containers
-ExecStartPre=/usr/bin/truncate -s 16384M /var/lib/containers/graph.img
-ExecStartPre=/usr/sbin/mkfs.ext4 /var/lib/containers/graph.img
-ExecStartPre=/usr/bin/mkdir -p /var/lib/containers/storage
-ExecStart=/usr/bin/mount /var/lib/containers/graph.img /var/lib/containers/storage/
-
-Type=oneshot
-
-[Install]
-WantedBy=multi-user.target
-EOU
-
 apt-get install -y iptables arptables ebtables
 
 # switch to legacy versions
@@ -278,6 +260,8 @@ apt-get reinstall linux-image-$(ls /lib/modules)
 rm -rf /var/lib/apt/lists/*
 
 EOF
+
+cp -rv /opt/assets/rootfs/* ${root_chroot}/
 
 root_image=$(mktemp -d)
 

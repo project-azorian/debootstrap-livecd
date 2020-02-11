@@ -23,6 +23,8 @@ RUN set -ex ;\
     curl -sSL https://gist.githubusercontent.com/heralight/c34fc27048ff8c13862a/raw/2fb11e12df22ef672ea7024a7d0a01863aea576d/gen-dummy-package.sh > /usr/bin/gen-dummy-package.sh ;\
     chmod +x /usr/bin/gen-dummy-package.sh
 
+COPY assets /opt/assets/
+
 COPY build.sh /usr/local/bin/build.sh
 
 CMD /usr/local/bin/build.sh
