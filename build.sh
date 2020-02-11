@@ -177,8 +177,8 @@ write_files:
       apiVersion: kubeproxy.config.k8s.io/v1alpha1
       kind: KubeProxyConfiguration
       mode: "ipvs"
-#runcmd:
-# - [ /usr/local/bin/genesis ]
+runcmd:
+ - [ /usr/local/bin/genesis ]
 EOCI
 tee "/etc/cloud/cloud.cfg.d/network-data.cfg" <<'EOCI'
 network:
@@ -198,10 +198,7 @@ Wants=network-online.target
 After=network-online.target
 EOCI
 
-tee "/etc/network/interfaces" <<'EOCI'
-auto lo
-iface lo inet loopback
-EOCI
+
 systemctl mask ssh.socket
 
 EOF
