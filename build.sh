@@ -93,18 +93,17 @@ write_files:
 
       # NOTE: Wait for dns to be running.
       END=$(($(date +%s) + 240))
-      until kubectl --namespace=kube-system \
-            get pods -l k8s-app=kube-dns --no-headers -o name | grep -q "^pod/coredns"; do
-      NOW=$(date +%s)
-      [ "${NOW}" -gt "${END}" ] && exit 1
-      echo "still waiting for dns"
-      sleep 10
+      until kubectl --kubeconfig=/etc/kubernetes/admin.conf --namespace=kube-system get pods -l k8s-app=kube-dns --no-headers -o name | grep -q "^pod/coredns"; do
+        NOW=$(date +%s)
+        [ "${NOW}" -gt "${END}" ] && exit 1
+        echo "still waiting for dns"
+        sleep 10
       done
-      kubectl --namespace=kube-system wait --timeout=240s --for=condition=Ready pods -l k8s-app=kube-dns
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf --namespace=kube-system wait --timeout=240s --for=condition=Ready pods -l k8s-app=kube-dns
 
-      kubectl taint nodes --all node-role.kubernetes.io/master-
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/master-
 
-      kubectl get nodes -o wide
+      kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
 
   - path: /etc/airship/genesis/100-crio-bridge.conf.template
     permissions: '0640'
