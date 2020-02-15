@@ -220,6 +220,7 @@ apt-get install -y --no-install-recommends cri-o-1.16 cri-tools skopeo
 crio config > /etc/crio/crio.conf
 sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' /etc/crio/crio.conf
 sed -i 's|cgroup_manager = "cgroupfs"|cgroup_manager = "systemd"|g' /etc/crio/crio.conf
+sed -i 's|log_to_journald = false|log_to_journald = true|g' /etc/crio/crio.conf
 
 apt-get install -y iptables arptables ebtables
 
