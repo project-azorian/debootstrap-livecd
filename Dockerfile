@@ -1,4 +1,4 @@
-FROM debian:sid-slim as base-image
+FROM debian:bullseye-slim as base-image
 
 ENV root_chroot="/opt/ephemerial-rootfs"
 ENV root_image="/opt/ephemerial-image"
@@ -30,7 +30,7 @@ RUN mkdir -p ${root_chroot} ;\
     debootstrap \
       --arch=amd64 \
       --variant=minbase \
-      sid \
+      bullseye \
       "${root_chroot}" \
       http://ftp.debian.org/debian/
 
@@ -82,8 +82,8 @@ RUN chroot "${root_chroot}" apt-get update ;\
     chroot "${root_chroot}" update-alternatives --set arptables /usr/sbin/arptables-legacy ;\
     chroot "${root_chroot}" update-alternatives --set ebtables /usr/sbin/ebtables-legacy
 
-RUN echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/Debian_Unstable/ /' > ${root_chroot}/etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list ;\
-    curl -o ${root_chroot}/tmp/Release.key -sSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/Debian_Unstable/Release.key ;\
+RUN echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/Debian_Testing/ /' > ${root_chroot}/etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list ;\
+    curl -o ${root_chroot}/tmp/Release.key -sSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/Debian_Testing/Release.key ;\
     chroot "${root_chroot}" apt-key add /tmp/Release.key ;\
     rm -f  ${root_chroot}/tmp/Release.key ;\
     curl -o ${root_chroot}/tmp/Release.key -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg ;\
@@ -95,14 +95,16 @@ RUN chroot "${root_chroot}" apt-get update ;\
     chroot "${root_chroot}" apt-get install -y --no-install-recommends \
         cri-o-1.16 \
         cri-tools \
-        skopeo
+        skopeo ;\
+    chroot "${root_chroot}" systemctl disable crio
 
 RUN chroot "${root_chroot}" apt-get update ;\
     chroot "${root_chroot}" apt-get install -y --no-install-recommends \
         kubeadm \
         kubectl \
         kubelet \
-        kubernetes-cni
+        kubernetes-cni ;\
+    chroot "${root_chroot}" rm -fv /etc/systemd/system/multi-user.target.wants/kubelet.service
 
 RUN chroot "${root_chroot}" crio config > ${root_chroot}/etc/crio/crio.conf ;\
     sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' ${root_chroot}/etc/crio/crio.conf ;\
@@ -145,7 +147,7 @@ RUN mkdir -p ${root_image}/live ;\
         -e boot ;\
     cp -v "${root_chroot}"/boot/vmlinuz-* "${root_image}"/vmlinuz ;\
     cp -v "${root_chroot}"/boot/initrd.img-* "${root_image}"/initrd ;\
-    touch "${root_image}/DEBIAN_CUSTOM"
+    touch "${root_image}/AIRSHIP_EPHEMERAL"
 
 
 

@@ -1,3 +1,3 @@
-#[Link]
-#NamePolicy=kernel database onboard path slot
-#MACAddressPolicy=persistent
+[Link]
+NamePolicy=kernel database onboard path slot
+MACAddressPolicy=persistent
