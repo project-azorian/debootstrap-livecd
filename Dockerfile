@@ -85,11 +85,7 @@ RUN chroot "${root_chroot}" apt-get update ;\
 RUN echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/Debian_Testing/ /' > ${root_chroot}/etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list ;\
     curl -o ${root_chroot}/tmp/Release.key -sSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/Debian_Testing/Release.key ;\
     chroot "${root_chroot}" apt-key add /tmp/Release.key ;\
-    rm -f  ${root_chroot}/tmp/Release.key ;\
-    curl -o ${root_chroot}/tmp/Release.key -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg ;\
-    chroot "${root_chroot}" apt-key add /tmp/Release.key ;\
-    rm -f ${root_chroot}/tmp/Release.key ;\
-    echo 'deb https://apt.kubernetes.io/ kubernetes-xenial main' > ${root_chroot}/etc/apt/sources.list.d/kubernetes.list
+    rm -f  ${root_chroot}/tmp/Release.key
 
 RUN chroot "${root_chroot}" apt-get update ;\
     chroot "${root_chroot}" apt-get install -y --no-install-recommends \
@@ -98,13 +94,15 @@ RUN chroot "${root_chroot}" apt-get update ;\
         skopeo ;\
     chroot "${root_chroot}" systemctl disable crio
 
-RUN chroot "${root_chroot}" apt-get update ;\
-    chroot "${root_chroot}" apt-get install -y --no-install-recommends \
-        kubeadm \
-        kubectl \
-        kubelet \
-        kubernetes-cni ;\
-    chroot "${root_chroot}" rm -fv /etc/systemd/system/multi-user.target.wants/kubelet.service
+RUN CNI_VERSION="v0.8.2" ;\
+    mkdir -p "${root_chroot}"/opt/cni/bin ;\
+    curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | tar -C "${root_chroot}/opt/cni/bin" -xz
+
+RUN RELEASE="$(curl -sSL https://dl.k8s.io/release/stable.txt)" ;\
+    mkdir -p /opt/bin ;\
+    cd /opt/bin ;\
+    curl -L --remote-name-all https://storage.googleapis.com/kubernetes-release/release/${RELEASE}/bin/linux/amd64/{kubeadm,kubelet,kubectl} ;\
+    chmod +x {kubeadm,kubelet,kubectl}
 
 RUN chroot "${root_chroot}" crio config > ${root_chroot}/etc/crio/crio.conf ;\
     sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' ${root_chroot}/etc/crio/crio.conf ;\
@@ -129,7 +127,7 @@ RUN cp -ravf /opt/assets/rootfs/* ${root_chroot}/ ;\
 
 
 
-FROM base-image as squashfs-builder
+#FROM base-image as squashfs-builder
 
 RUN apt-get update ;\
     apt-get dist-upgrade -y ;\
@@ -137,7 +135,7 @@ RUN apt-get update ;\
         squashfs-tools ;\
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=rootfs-builder /opt/ephemerial-rootfs ${root_chroot}
+#COPY --from=rootfs-builder /opt/ephemerial-rootfs ${root_chroot}
 
 RUN mkdir -p ${root_image}/live ;\
     mksquashfs \
@@ -173,7 +171,7 @@ RUN grub-mkstandalone \
 
 
 
-FROM base-image as iso-builder
+FROM rootfs-builder as iso-builder
 
 RUN apt-get update ;\
     apt-get dist-upgrade -y ;\
@@ -182,7 +180,7 @@ RUN apt-get update ;\
         grub-pc-bin
 
 COPY assets/utils /opt/assets/utils/
-COPY --from=squashfs-builder /opt/ephemerial-image ${root_image}
+#COPY --from=rootfs-builder /opt/ephemerial-image ${root_image}
 COPY --from=grub-builder /opt/grub ${boot_src}
 
 ENV cloud_data_root="${root_image}/openstack/latest"
