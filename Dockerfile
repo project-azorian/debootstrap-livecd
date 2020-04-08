@@ -94,20 +94,21 @@ RUN chroot "${root_chroot}" apt-get update ;\
         skopeo ;\
     chroot "${root_chroot}" systemctl disable crio
 
+RUN chroot "${root_chroot}" crio config > ${root_chroot}/etc/crio/crio.conf ;\
+    sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' ${root_chroot}/etc/crio/crio.conf ;\
+    sed -i 's|cgroup_manager = "cgroupfs"|cgroup_manager = "systemd"|g' ${root_chroot}/etc/crio/crio.conf ;\
+    sed -i 's|log_to_journald = false|log_to_journald = true|g' ${root_chroot}/etc/crio/crio.conf
+
+
 RUN CNI_VERSION="v0.8.2" ;\
     mkdir -p "${root_chroot}"/opt/cni/bin ;\
     curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | tar -C "${root_chroot}/opt/cni/bin" -xz
 
 RUN RELEASE="$(curl -sSL https://dl.k8s.io/release/stable.txt)" ;\
-    mkdir -p /opt/bin ;\
-    cd /opt/bin ;\
+    mkdir -p ${root_chroot}/opt/bin ;\
+    cd ${root_chroot}/opt/bin ;\
     curl -L --remote-name-all https://storage.googleapis.com/kubernetes-release/release/${RELEASE}/bin/linux/amd64/{kubeadm,kubelet,kubectl} ;\
     chmod +x {kubeadm,kubelet,kubectl}
-
-RUN chroot "${root_chroot}" crio config > ${root_chroot}/etc/crio/crio.conf ;\
-    sed -i 's|runtime_path = ""|runtime_path = "/usr/lib/cri-o-runc/sbin/runc"|g' ${root_chroot}/etc/crio/crio.conf ;\
-    sed -i 's|cgroup_manager = "cgroupfs"|cgroup_manager = "systemd"|g' ${root_chroot}/etc/crio/crio.conf ;\
-    sed -i 's|log_to_journald = false|log_to_journald = true|g' ${root_chroot}/etc/crio/crio.conf
 
 COPY assets/rootfs /opt/assets/rootfs/
 RUN cp -ravf /opt/assets/rootfs/* ${root_chroot}/ ;\
@@ -127,7 +128,7 @@ RUN cp -ravf /opt/assets/rootfs/* ${root_chroot}/ ;\
 
 
 
-#FROM base-image as squashfs-builder
+FROM base-image as squashfs-builder
 
 RUN apt-get update ;\
     apt-get dist-upgrade -y ;\
@@ -135,7 +136,7 @@ RUN apt-get update ;\
         squashfs-tools ;\
     rm -rf /var/lib/apt/lists/*
 
-#COPY --from=rootfs-builder /opt/ephemerial-rootfs ${root_chroot}
+COPY --from=rootfs-builder /opt/ephemerial-rootfs ${root_chroot}
 
 RUN mkdir -p ${root_image}/live ;\
     mksquashfs \
@@ -171,7 +172,7 @@ RUN grub-mkstandalone \
 
 
 
-FROM rootfs-builder as iso-builder
+FROM base-image as iso-builder
 
 RUN apt-get update ;\
     apt-get dist-upgrade -y ;\
@@ -180,7 +181,7 @@ RUN apt-get update ;\
         grub-pc-bin
 
 COPY assets/utils /opt/assets/utils/
-#COPY --from=rootfs-builder /opt/ephemerial-image ${root_image}
+COPY --from=squashfs-builder /opt/ephemerial-image ${root_image}
 COPY --from=grub-builder /opt/grub ${boot_src}
 
 ENV cloud_data_root="${root_image}/openstack/latest"
